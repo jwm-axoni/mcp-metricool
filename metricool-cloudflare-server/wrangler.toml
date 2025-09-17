@@ -1,0 +1,12 @@
+name = "metricool-mcp"
+main = "build/index.js"
+compatibility_date = "2024-12-01"
+node_compat = true
+
+[vars]
+# METRICOOL_USER_ID = ""
+# METRICOOL_USER_TOKEN = ""
+# METRICOOL_BLOG_ID = ""
+
+[observability]
+enabled = true

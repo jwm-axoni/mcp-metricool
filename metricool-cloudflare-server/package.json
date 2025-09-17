@@ -1,0 +1,20 @@
+{
+  "name": "metricool-cloudflare-server",
+  "version": "0.1.0",
+  "description": "Streamable HTTP MCP server for Metricool, deployable to Cloudflare MCP hosting",
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.4",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.14.0",
+    "typescript": "^5.8.3"
+  }
+}
