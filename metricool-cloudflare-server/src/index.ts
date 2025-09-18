@@ -83,10 +83,46 @@ async function metricoolApiCall<T>(
   const response = await fetch(url.toString(), requestInit);
 
   if (!response.ok) {
-    throw new Error(`Metricool API error: ${response.status} ${response.statusText}`);
+    // Try to get error details, but handle non-JSON responses
+    let errorDetails = `${response.status} ${response.statusText}`;
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const errorBody = await response.json();
+        errorDetails = errorBody.message || errorBody.error || errorDetails;
+      } else {
+        // If it's HTML or other content, just include the status
+        const textBody = await response.text();
+        if (textBody.includes("<!DOCTYPE") || textBody.includes("<html")) {
+          errorDetails = `${response.status} ${response.statusText} (HTML error page returned)`;
+        } else {
+          errorDetails = `${response.status} ${response.statusText}: ${textBody.substring(0, 200)}`;
+        }
+      }
+    } catch (parseError) {
+      // If we can't parse the error response, use the basic error
+      console.error("Could not parse error response:", parseError);
+    }
+    
+    throw new Error(`Metricool API error: ${errorDetails}`);
   }
 
-  return response.json();
+  // Verify response is JSON before parsing
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const textBody = await response.text();
+    if (textBody.includes("<!DOCTYPE") || textBody.includes("<html")) {
+      throw new Error(`Metricool API returned HTML instead of JSON. This usually indicates an API error or maintenance page.`);
+    }
+    throw new Error(`Metricool API returned non-JSON response: ${contentType}. Body: ${textBody.substring(0, 200)}`);
+  }
+
+  try {
+    return await response.json();
+  } catch (jsonError) {
+    const textBody = await response.text();
+    throw new Error(`Failed to parse JSON response from Metricool API. Body: ${textBody.substring(0, 200)}`);
+  }
 }
 
 // Tool handler functions
@@ -178,7 +214,7 @@ async function handleValues(config: MetricoolConfig, args: Record<string, unknow
   };
 }
 
-async function handlePosts(config: MetricoolConfig, args: Record<string, unknown>) {
+async function handleWebsitePosts(config: MetricoolConfig, args: Record<string, unknown>) {
   const start = args.start ? String(args.start) : undefined;
   const end = args.end ? String(args.end) : undefined;
   const blogId = args.blogId ? String(args.blogId) : undefined;
@@ -186,7 +222,82 @@ async function handlePosts(config: MetricoolConfig, args: Record<string, unknown
   const posts = await metricoolApiCall<unknown[]>(
     config,
     "GET",
-    "/posts",
+    "/stats/posts",
+    {
+      query: { start, end },
+      blogId,
+    }
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(posts, null, 2),
+      },
+    ],
+  };
+}
+
+async function handleInstagramPosts(config: MetricoolConfig, args: Record<string, unknown>) {
+  const start = args.start ? String(args.start) : undefined;
+  const end = args.end ? String(args.end) : undefined;
+  const blogId = args.blogId ? String(args.blogId) : undefined;
+
+  const posts = await metricoolApiCall<unknown[]>(
+    config,
+    "GET",
+    "/stats/instagram/posts",
+    {
+      query: { start, end },
+      blogId,
+    }
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(posts, null, 2),
+      },
+    ],
+  };
+}
+
+async function handleFacebookPosts(config: MetricoolConfig, args: Record<string, unknown>) {
+  const start = args.start ? String(args.start) : undefined;
+  const end = args.end ? String(args.end) : undefined;
+  const blogId = args.blogId ? String(args.blogId) : undefined;
+
+  const posts = await metricoolApiCall<unknown[]>(
+    config,
+    "GET",
+    "/stats/facebook/posts",
+    {
+      query: { start, end },
+      blogId,
+    }
+  );
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(posts, null, 2),
+      },
+    ],
+  };
+}
+
+async function handleTwitterPosts(config: MetricoolConfig, args: Record<string, unknown>) {
+  const start = args.start ? String(args.start) : undefined;
+  const end = args.end ? String(args.end) : undefined;
+  const blogId = args.blogId ? String(args.blogId) : undefined;
+
+  const posts = await metricoolApiCall<unknown[]>(
+    config,
+    "GET",
+    "/stats/twitter/posts",
     {
       query: { start, end },
       blogId,
@@ -533,8 +644,17 @@ export default {
             case "metricool-get-values":
               result = await handleValues(config, toolArgs);
               break;
-            case "metricool-get-posts":
-              result = await handlePosts(config, toolArgs);
+            case "metricool-get-website-posts":
+              result = await handleWebsitePosts(config, toolArgs);
+              break;
+            case "metricool-get-instagram-posts":
+              result = await handleInstagramPosts(config, toolArgs);
+              break;
+            case "metricool-get-facebook-posts":
+              result = await handleFacebookPosts(config, toolArgs);
+              break;
+            case "metricool-get-twitter-posts":
+              result = await handleTwitterPosts(config, toolArgs);
               break;
             case "metricool-list-reports":
               result = await handleListReports(config, toolArgs);
@@ -560,12 +680,47 @@ export default {
         } catch (error) {
           console.error("[MetricoolMCPServer] Error handling tools/call:", error);
           console.error("[MetricoolMCPServer] Error stack:", error instanceof Error ? error.stack : "No stack");
+          
+          // Provide more helpful error messages based on error type
+          let userMessage = "Internal error";
+          let errorCode = -32603;
+          
+          if (error instanceof Error) {
+            const errorMsg = error.message;
+            
+            if (errorMsg.includes("HTML error page returned") || errorMsg.includes("returned HTML instead of JSON")) {
+              userMessage = "Metricool API is temporarily unavailable or returned an error page";
+              errorCode = -32002; // Server error
+            } else if (errorMsg.includes("401") || errorMsg.includes("Unauthorized")) {
+              userMessage = "Invalid Metricool credentials. Please check your User ID and Token.";
+              errorCode = -32600; // Invalid request
+            } else if (errorMsg.includes("403") || errorMsg.includes("Forbidden")) {
+              userMessage = "Access denied. Please check your Metricool account permissions.";
+              errorCode = -32600; // Invalid request
+            } else if (errorMsg.includes("404")) {
+              userMessage = "Metricool API endpoint not found. The tool may be using an outdated API.";
+              errorCode = -32601; // Method not found
+            } else if (errorMsg.includes("500") || errorMsg.includes("502") || errorMsg.includes("503")) {
+              userMessage = "Metricool API server error. Please try again later.";
+              errorCode = -32002; // Server error
+            } else if (errorMsg.includes("timeout") || errorMsg.includes("TIMEOUT")) {
+              userMessage = "Request to Metricool API timed out. Please try again.";
+              errorCode = -32002; // Server error
+            } else if (errorMsg.includes("network") || errorMsg.includes("fetch")) {
+              userMessage = "Network error connecting to Metricool API. Please check your connection.";
+              errorCode = -32002; // Server error
+            } else {
+              // For other errors, include the actual error message as it might be helpful
+              userMessage = `Metricool API error: ${errorMsg}`;
+            }
+          }
+          
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
               error: {
-                code: -32603,
-                message: "Internal error",
+                code: errorCode,
+                message: userMessage,
                 data: error instanceof Error ? error.message : String(error),
               },
               id: rpcRequest.id,
@@ -583,7 +738,7 @@ export default {
         const tools = [
           {
             name: "metricool-list-brands",
-            description: "List all brands (websites/blogs) available to the Metricool account. Use this first to discover available brand IDs for other operations. Returns brand details including names, domains, and IDs.",
+            description: "⭐ START HERE: List all brands (websites/blogs) available to the Metricool account. This should be your FIRST call to discover available brand IDs which are REQUIRED for reliable operation of other tools (especially post-related tools). Returns brand details including names, domains, and IDs that you'll need for subsequent API calls.",
             inputSchema: {
               type: "object",
               properties: {},
@@ -649,8 +804,8 @@ export default {
             },
           },
           {
-            name: "metricool-get-posts",
-            description: "Retrieve website posts/articles published within a specific time period. Useful for content analysis, publication tracking, and performance monitoring.",
+            name: "metricool-get-website-posts",
+            description: "Retrieve website posts published within a specific time period. Returns detailed post data for website/blog content including titles, URLs, publish dates, and performance metrics.",
             inputSchema: {
               type: "object",
               properties: {
@@ -669,6 +824,87 @@ export default {
                 blogId: {
                   type: "string",
                   description: "Specific brand/blog ID to query. If not provided, uses the default configured brand. Get available IDs using metricool-list-brands.",
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          {
+            name: "metricool-get-instagram-posts",
+            description: "Retrieve Instagram posts published within a specific time period. Returns detailed Instagram post data including engagement metrics, reach, impressions, likes, comments, and media information for Instagram content. IMPORTANT: This tool requires a specific blogId and works best with explicit date ranges. If you get a 500 error, ensure you're using a valid blogId from metricool-list-brands and try adding specific start/end dates.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240819", "20240901", "20241001"]
+                },
+                end: {
+                  type: "string",
+                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240918", "20240930", "20241031"]
+                },
+                blogId: {
+                  type: "string",
+                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  examples: ["3510380", "3606286", "3723052"]
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          {
+            name: "metricool-get-facebook-posts",
+            description: "Retrieve Facebook posts published within a specific time period. Returns detailed Facebook post data including reach, engagement, reactions, clicks, shares, comments, and performance metrics for Facebook page content. IMPORTANT: This tool requires a specific blogId and works best with explicit date ranges. If you get a 500 error, ensure you're using a valid blogId from metricool-list-brands and try adding specific start/end dates.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240819", "20240901", "20241001"]
+                },
+                end: {
+                  type: "string",
+                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240918", "20240930", "20241031"]
+                },
+                blogId: {
+                  type: "string",
+                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  examples: ["3510380", "3606286", "3723052"]
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          {
+            name: "metricool-get-twitter-posts",
+            description: "Retrieve Twitter/X posts (tweets) published within a specific time period. Returns detailed tweet data including impressions, engagement, retweets, likes, replies, and performance metrics for Twitter content. IMPORTANT: This tool requires a specific blogId and works best with explicit date ranges. If you get a 500 error, ensure you're using a valid blogId from metricool-list-brands and try adding specific start/end dates.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240819", "20240901", "20241001"]
+                },
+                end: {
+                  type: "string",
+                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  pattern: "^\\d{8}$",
+                  examples: ["20240918", "20240930", "20241031"]
+                },
+                blogId: {
+                  type: "string",
+                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  examples: ["3510380", "3606286", "3723052"]
                 },
               },
               additionalProperties: false,
