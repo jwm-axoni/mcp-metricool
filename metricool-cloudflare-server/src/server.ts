@@ -177,7 +177,151 @@ export class MetricoolMCPServer {
   constructor(server: Server, options: MetricoolServerOptions) {
     this.server = server;
     this.client = new MetricoolClient(options.config);
-    this.setupTools();
+
+    const tools = [
+      {
+        name: this.listBrandsTool,
+        description: "List all brands (websites/blogs) available to the Metricool account. Use this first to discover available brand IDs for other operations. Returns brand details including names, domains, and IDs.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+      {
+        name: this.timelineTool,
+        description: "Fetch historical data points for a specific metric over time. Useful for trend analysis, growth tracking, and performance monitoring. Returns time-series data with dates and values.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            metric: {
+              type: "string",
+              description: "Metric identifier. Popular metrics include: 'igFollowers' (Instagram followers), 'facebookLikes' (Facebook page likes), 'SessionsCount' (website sessions), 'twitterFollowers', 'linkedinFollowers'. Use exact metric names.",
+              examples: ["igFollowers", "facebookLikes", "SessionsCount", "twitterFollowers", "linkedinFollowers"]
+            },
+            start: {
+              type: "string",
+              description: "Start date in YYYYMMDD format (e.g., '20240101' for January 1, 2024). If omitted, defaults to 30 days ago.",
+              pattern: "^\\d{8}$",
+              examples: ["20240101", "20240315"]
+            },
+            end: {
+              type: "string",
+              description: "End date in YYYYMMDD format (e.g., '20240131' for January 31, 2024). If omitted, defaults to today.",
+              pattern: "^\\d{8}$",
+              examples: ["20240131", "20240331"]
+            },
+            blogId: {
+              type: "string",
+              description: "Specific brand/blog ID to query. If not provided, uses the default configured brand. Get available IDs using metricool-list-brands.",
+            },
+          },
+          required: ["metric"],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: this.valuesTool,
+        description: "Get current aggregated metrics and KPIs for a specific category on a given day. Perfect for getting current status, daily snapshots, or comparing specific dates.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            category: {
+              type: "string",
+              description: "Analytics category to retrieve. Available categories: 'Audience' (follower counts across platforms), 'Facebook' (Facebook-specific metrics), 'Instagram' (Instagram-specific metrics), 'FacebookAds' (Facebook advertising metrics), 'Twitter', 'LinkedIn'. Use exact category names.",
+              examples: ["Audience", "Facebook", "Instagram", "FacebookAds", "Twitter", "LinkedIn"]
+            },
+            date: {
+              type: "string",
+              description: "Date in YYYYMMDD format (e.g., '20240315' for March 15, 2024). If omitted, returns data for today.",
+              pattern: "^\\d{8}$",
+              examples: ["20240315", "20240101"]
+            },
+            blogId: {
+              type: "string",
+              description: "Specific brand/blog ID to query. If not provided, uses the default configured brand. Get available IDs using metricool-list-brands.",
+            },
+          },
+          required: ["category"],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: this.postsTool,
+        description: "Retrieve website posts/articles published within a specific time period. Useful for content analysis, publication tracking, and performance monitoring.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            start: {
+              type: "string",
+              description: "Start date in YYYYMMDD format (e.g., '20240101'). If omitted, defaults to 30 days ago.",
+              pattern: "^\\d{8}$",
+              examples: ["20240101", "20240301"]
+            },
+            end: {
+              type: "string",
+              description: "End date in YYYYMMDD format (e.g., '20240131'). If omitted, defaults to today.",
+              pattern: "^\\d{8}$",
+              examples: ["20240131", "20240331"]
+            },
+            blogId: {
+              type: "string",
+              description: "Specific brand/blog ID to query. If not provided, uses the default configured brand. Get available IDs using metricool-list-brands.",
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: this.reportsTool,
+        description: "List all generated analytics reports for a brand. Reports contain comprehensive data exports and analysis. Returns report metadata including IDs, names, creation dates, and status.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            blogId: {
+              type: "string",
+              description: "Brand/blog identifier to query reports for. If not provided, uses the default configured brand. Get available IDs using metricool-list-brands.",
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: this.reportStatusTool,
+        description: "Check the processing status and availability of a specific report job. Use this to monitor report generation progress and get download links when ready.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            jobId: {
+              type: "string",
+              description: "Report job identifier returned from a report generation request or found in metricool-list-reports.",
+            },
+            blogId: {
+              type: "string",
+              description: "Brand/blog identifier that owns the report. If not provided, uses the default configured brand.",
+            },
+          },
+          required: ["jobId"],
+          additionalProperties: false,
+        },
+      },
+    ];
+
+    // Set capabilities with tools included
+    this.server = new Server(
+      {
+        name: "metricool-cloudflare-server",
+        version: "0.1.0",
+      },
+      {
+        capabilities: {
+          tools: tools as any,
+          logging: {},
+        },
+      },
+    );
+
+    this.setupTools(tools);
   }
 
   async handleGetRequest(req: Request, res: Response) {
@@ -190,24 +334,31 @@ export class MetricoolMCPServer {
     }
 
     const transport = this.transports[sessionId];
+    console.log(
+      `[MetricoolMCPServer] Attaching SSE stream for session ${sessionId}`,
+    );
     await transport.handleRequest(req, res);
     await this.streamMessages(transport);
   }
 
   async handlePostRequest(req: Request, res: Response) {
     const sessionId = req.headers[SESSION_ID_HEADER_NAME] as string | undefined;
+    console.log("[MetricoolMCPServer] Handling POST request, sessionId:", sessionId);
+    console.log("[MetricoolMCPServer] Request body:", JSON.stringify(req.body, null, 2));
     let transport: StreamableHTTPServerTransport;
 
     try {
       if (sessionId && this.transports[sessionId]) {
+        console.log(
+          `[MetricoolMCPServer] Reusing transport for session ${sessionId}`,
+        );
         transport = this.transports[sessionId];
         await transport.handleRequest(req, res, req.body);
         return;
-      }
-
-      if (!sessionId && this.isInitializeRequest(req.body)) {
+      } else if (!sessionId && this.isInitializeRequest(req.body)) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
+          enableJsonResponse: true,
         });
 
         await this.server.connect(transport);
@@ -215,14 +366,23 @@ export class MetricoolMCPServer {
 
         const generatedSessionId = transport.sessionId;
         if (generatedSessionId) {
+          console.log(
+            `[MetricoolMCPServer] Created new transport for session ${generatedSessionId}`,
+          );
           this.transports[generatedSessionId] = transport;
         }
         return;
+      } else {
+        // Handle requests without session (e.g., tools/list) by creating a new transport
+        console.log("[MetricoolMCPServer] Handling request without session");
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          enableJsonResponse: true,
+        });
+        await this.server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        return;
       }
-
-      res
-        .status(400)
-        .json(this.createErrorResponse("Bad Request: invalid session."));
     } catch (error) {
       console.error("Error handling MCP request:", error);
       res
@@ -235,125 +395,11 @@ export class MetricoolMCPServer {
     await this.server.close();
   }
 
-  private setupTools() {
-    const tools = [
-      {
-        name: this.listBrandsTool,
-        description: "List all brands (blogs) available to the Metricool account",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
-        name: this.timelineTool,
-        description:
-          "Fetch a time series for a Metricool metric between optional start/end dates",
-        inputSchema: {
-          type: "object",
-          properties: {
-            metric: {
-              type: "string",
-              description:
-                "Metric identifier, e.g. igFollowers, facebookLikes, SessionsCount",
-            },
-            start: {
-              type: "string",
-              description: "Start date in YYYYMMDD",
-            },
-            end: {
-              type: "string",
-              description: "End date in YYYYMMDD",
-            },
-            blogId: {
-              type: "string",
-              description: "Override blogId; defaults to METRICOOL_BLOG_ID if set",
-            },
-          },
-          required: ["metric"],
-        },
-      },
-      {
-        name: this.valuesTool,
-        description:
-          "Get aggregated values for a Metricool category on a specific day",
-        inputSchema: {
-          type: "object",
-          properties: {
-            category: {
-              type: "string",
-              description:
-                "Category identifier, e.g. Audience, Facebook, instagram, FacebookAds",
-            },
-            date: {
-              type: "string",
-              description: "Date in YYYYMMDD (defaults to today if omitted)",
-            },
-            blogId: {
-              type: "string",
-              description: "Override blogId; defaults to METRICOOL_BLOG_ID if set",
-            },
-          },
-          required: ["category"],
-        },
-      },
-      {
-        name: this.postsTool,
-        description: "Retrieve website posts published in a period",
-        inputSchema: {
-          type: "object",
-          properties: {
-            start: {
-              type: "string",
-              description: "Start date in YYYYMMDD",
-            },
-            end: {
-              type: "string",
-              description: "End date in YYYYMMDD",
-            },
-            blogId: {
-              type: "string",
-              description: "Override blogId; defaults to METRICOOL_BLOG_ID if set",
-            },
-          },
-        },
-      },
-      {
-        name: this.reportsTool,
-        description: "List generated reports for a given brand",
-        inputSchema: {
-          type: "object",
-          properties: {
-            blogId: {
-              type: "string",
-              description: "Brand identifier to query; defaults to METRICOOL_BLOG_ID",
-            },
-          },
-        },
-      },
-      {
-        name: this.reportStatusTool,
-        description: "Check the status of a specific report job",
-        inputSchema: {
-          type: "object",
-          properties: {
-            jobId: {
-              type: "string",
-              description: "Report job identifier",
-            },
-            blogId: {
-              type: "string",
-              description: "Brand identifier; defaults to METRICOOL_BLOG_ID",
-            },
-          },
-          required: ["jobId"],
-        },
-      },
-    ];
-
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools,
-    }));
+  private setupTools(tools: any[]) {
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      console.log("[MetricoolMCPServer] Listing tools");
+      return { tools };
+    });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const toolName = request.params.name;
@@ -364,6 +410,11 @@ export class MetricoolMCPServer {
       }
 
       try {
+        console.log(
+          "[MetricoolMCPServer] CallTool",
+          toolName,
+          JSON.stringify(args),
+        );
         switch (toolName) {
           case this.listBrandsTool:
             return await this.handleListBrands();
