@@ -190,13 +190,13 @@ export class MetricoolMCPServer {
       },
       {
         name: this.timelineTool,
-        description: "Fetch historical data points for a specific metric over time. Useful for trend analysis, growth tracking, and performance monitoring. Returns time-series data with dates and values.",
+        description: "🔍 REQUIRED: metric parameter. Fetch historical data points for a specific metric over time. Useful for trend analysis, growth tracking, and performance monitoring. Returns time-series data with dates and values.",
         inputSchema: {
           type: "object",
           properties: {
             metric: {
               type: "string",
-              description: "Metric identifier. Popular metrics include: 'igFollowers' (Instagram followers), 'facebookLikes' (Facebook page likes), 'SessionsCount' (website sessions), 'twitterFollowers', 'linkedinFollowers'. Use exact metric names.",
+              description: "⚠️ REQUIRED: Metric identifier. Popular metrics include: 'igFollowers' (Instagram followers), 'facebookLikes' (Facebook page likes), 'SessionsCount' (website sessions), 'twitterFollowers', 'linkedinFollowers'. Use exact metric names.",
               examples: ["igFollowers", "facebookLikes", "SessionsCount", "twitterFollowers", "linkedinFollowers"]
             },
             start: {
@@ -222,13 +222,13 @@ export class MetricoolMCPServer {
       },
       {
         name: this.valuesTool,
-        description: "Get current aggregated metrics and KPIs for a specific category on a given day. Perfect for getting current status, daily snapshots, or comparing specific dates.",
+        description: "🔍 REQUIRED: category parameter. Get current aggregated metrics and KPIs for a specific category on a given day. Perfect for getting current status, daily snapshots, or comparing specific dates.",
         inputSchema: {
           type: "object",
           properties: {
             category: {
               type: "string",
-              description: "Analytics category to retrieve. Available categories: 'Audience' (follower counts across platforms), 'Facebook' (Facebook-specific metrics), 'Instagram' (Instagram-specific metrics), 'FacebookAds' (Facebook advertising metrics), 'Twitter', 'LinkedIn'. Use exact category names.",
+              description: "⚠️ REQUIRED: Analytics category to retrieve. Available categories: 'Audience' (follower counts across platforms), 'Facebook' (Facebook-specific metrics), 'Instagram' (Instagram-specific metrics), 'FacebookAds' (Facebook advertising metrics), 'Twitter', 'LinkedIn'. Use exact category names.",
               examples: ["Audience", "Facebook", "Instagram", "FacebookAds", "Twitter", "LinkedIn"]
             },
             date: {

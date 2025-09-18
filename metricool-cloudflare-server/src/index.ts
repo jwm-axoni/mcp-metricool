@@ -315,13 +315,16 @@ async function handleTwitterPosts(config: MetricoolConfig, args: Record<string, 
 }
 
 async function handleListReports(config: MetricoolConfig, args: Record<string, unknown>) {
-  const blogId = args.blogId ? String(args.blogId) : undefined;
+  const blogId = args.blogId ? String(args.blogId) : config.defaultBlogId;
+  
+  if (!blogId) {
+    throw new Error("blogId is required for listing reports. Use metricool-list-brands to get available blog IDs.");
+  }
 
   const reports = await metricoolApiCall<unknown[]>(
     config,
     "GET",
-    "/reports",
-    { blogId }
+    `/v2/brands/${blogId}/reports`
   );
 
   return {
@@ -340,13 +343,15 @@ async function handleReportStatus(config: MetricoolConfig, args: Record<string, 
     throw new Error("jobId is required");
   }
 
-  const blogId = args.blogId ? String(args.blogId) : undefined;
+  const blogId = args.blogId ? String(args.blogId) : config.defaultBlogId;
+  if (!blogId) {
+    throw new Error("blogId is required for checking report status. Use metricool-list-brands to get available blog IDs.");
+  }
 
   const status = await metricoolApiCall<unknown>(
     config,
     "GET",
-    `/reports/${encodeURIComponent(jobId)}/status`,
-    { blogId }
+    `/v2/brands/${blogId}/reports/${encodeURIComponent(jobId)}`
   );
 
   return {
@@ -358,6 +363,8 @@ async function handleReportStatus(config: MetricoolConfig, args: Record<string, 
     ],
   };
 }
+
+
 
 const sdkServer = new Server(
   {
@@ -837,22 +844,23 @@ export default {
               properties: {
                 start: {
                   type: "string",
-                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  description: "REQUIRED: Start date in YYYYMMDD format (e.g., '20240819'). Use recent dates within the last 6 months for best performance. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240819", "20240901", "20241001"]
                 },
                 end: {
                   type: "string",
-                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  description: "REQUIRED: End date in YYYYMMDD format (e.g., '20240918'). Should be after start date. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240918", "20240930", "20241031"]
                 },
                 blogId: {
                   type: "string",
-                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  description: "REQUIRED: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
                   examples: ["3510380", "3606286", "3723052"]
                 },
               },
+              required: ["blogId", "start", "end"],
               additionalProperties: false,
             },
           },
@@ -864,22 +872,23 @@ export default {
               properties: {
                 start: {
                   type: "string",
-                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  description: "REQUIRED: Start date in YYYYMMDD format (e.g., '20240819'). Use recent dates within the last 6 months for best performance. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240819", "20240901", "20241001"]
                 },
                 end: {
                   type: "string",
-                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  description: "REQUIRED: End date in YYYYMMDD format (e.g., '20240918'). Should be after start date. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240918", "20240930", "20241031"]
                 },
                 blogId: {
                   type: "string",
-                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  description: "REQUIRED: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
                   examples: ["3510380", "3606286", "3723052"]
                 },
               },
+              required: ["blogId", "start", "end"],
               additionalProperties: false,
             },
           },
@@ -891,22 +900,23 @@ export default {
               properties: {
                 start: {
                   type: "string",
-                  description: "Start date in YYYYMMDD format (e.g., '20240819'). RECOMMENDED: Always provide this parameter for reliable results. Use recent dates within the last 6 months for best performance.",
+                  description: "REQUIRED: Start date in YYYYMMDD format (e.g., '20240819'). Use recent dates within the last 6 months for best performance. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240819", "20240901", "20241001"]
                 },
                 end: {
                   type: "string",
-                  description: "End date in YYYYMMDD format (e.g., '20240918'). RECOMMENDED: Always provide this parameter for reliable results. Should be after start date.",
+                  description: "REQUIRED: End date in YYYYMMDD format (e.g., '20240918'). Should be after start date. This parameter is required for the API to work reliably.",
                   pattern: "^\\d{8}$",
                   examples: ["20240918", "20240930", "20241031"]
                 },
                 blogId: {
                   type: "string",
-                  description: "REQUIRED FOR RELIABILITY: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
+                  description: "REQUIRED: Specific brand/blog ID to query. Get available IDs using metricool-list-brands first. This significantly improves success rate and prevents 500 errors.",
                   examples: ["3510380", "3606286", "3723052"]
                 },
               },
+              required: ["blogId", "start", "end"],
               additionalProperties: false,
             },
           },
